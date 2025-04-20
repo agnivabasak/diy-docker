@@ -1,11 +1,20 @@
 #include<iostream>
-#include<cstdlib>
 #include<algorithm>
 #include<string>
+#include "run-command.hpp"
 
 using namespace std;
 
+struct CleanExit {
+	//to add a new line when the cli tool exits
+	//to make the program cli-use friendly
+    ~CleanExit() {
+        cout<<endl;
+    }
+};
+
 int main(int argc, char* argv[]){
+	CleanExit cleanExit;
 	//Currently assuming order  - <command> <subCommand> <containerCommand> <containerArgs>
 	//first arg is the file name/cli name itself (in this case ./mini-docker)
 	try{
@@ -21,6 +30,7 @@ int main(int argc, char* argv[]){
 			int argInd = 3;
 			while(argInd<argc){
 				containerArgs += argv[argInd];
+				containerArgs.append(" ");
 				argInd++;
 			}
 		}
@@ -28,17 +38,17 @@ int main(int argc, char* argv[]){
                    [](unsigned char c) { return tolower(c); }); //transforming string in-place to lower case characters
 		if(subCommand=="run")
 		{
-			int returnCode =system((containerCommand+containerArgs).c_str());
+			int returnCode = runDockerCommand(containerCommand + containerArgs);
 			if (returnCode !=0){
-				cerr << "Command execution failed!\n";
+				cerr << "Command execution failed!";
 				return 1;
 			}
 		} else{
-			cerr<<"Unrecognized subcommand !\n";
+			cerr<<"Unrecognized subcommand !";
 				return 1;
 		}
 	} catch(...){
-		cerr<<"There was an error while trying to parse the command\n";
+		cerr<<"There was an error while trying to parse the command";
 		return 1;
 	}
 	return 0;
