@@ -19,7 +19,7 @@ int main(int argc, char* argv[]){
 	//first arg is the file name/cli name itself (in this case ./mini-docker)
 	try{
 		if(argc<3){
-			cerr<<"There should be atleast three arguments provided to the command line tool\n";
+			cerr<<"There should be at least three arguments provided to the command line tool\n";
 			cerr<<"Format : <command> <subCommand> <containerCommand> <containerArgs>\n";
 			return 1;
 		}

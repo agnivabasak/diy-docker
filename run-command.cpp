@@ -15,26 +15,32 @@
 using namespace std;
 
 random_device rd;
-const int STACK_SIZE = 1024 * 1024; //clone() -> doesnt create stack on its own like fork, we have to create it manually
+const int STACK_SIZE = 1024 * 1024; //clone() -> doesn't create stack on its own like fork, we have to create it manually
 
 int runDockerCommandInIsolation(void* arg) {
 	//Generate random id for container
 	mt19937 g(rd());
 	uniform_int_distribution<int> dist(0, INT_MAX);
 	long long containerId = dist(g);
-	//Changing domainname for the isolated process
+
+	//Changing hostname for the isolated process
 	string hostnameCommand = "hostname minidocker-" + to_string(containerId);
 	system(hostnameCommand.c_str());
+
 	//executing user command
 	const char* command = static_cast<const char*>(arg);
-	return system(command);
+	string sCommand(command);
+	//chroot is used to set the root directory, this helps isolate the process from the host filesystem
+	//currently using an alpine installation to test that chroot works as expected
+	string chrootedCommand = "chroot ./alpine " + sCommand;
+	return system(chrootedCommand.c_str());
 }
 
 int runDockerCommand(string command) {
 	char* stack = new char[STACK_SIZE];
 	char* stackTop = stack + STACK_SIZE;
 
-	//Creating new UTS namespace allows us to chagne the hostname/domainname of the process being spawned
+	//Creating new UTS namespace allows us to change the hostname/domainname of the process being spawned
 	pid_t pid = clone(runDockerCommandInIsolation, stackTop, CLONE_NEWPID | CLONE_NEWUTS | SIGCHLD, (void*)command.c_str());
 	if (pid == -1) {
 		perror("Failed to create isolated process");
