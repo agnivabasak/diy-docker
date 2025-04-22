@@ -9,8 +9,10 @@ struct CleanExit {
 	//to add a new line when the cli tool exits
 	//to make the program cli-use friendly
     ~CleanExit() {
-        cout<<endl;
+		cerr << endl;
     }
+	//This is a hack as cerr is what causes the program to end abruptly
+	//TODO: This doesn't work consistently. Make a logger wrapper or use one that does this for both cerr and cout
 };
 
 int main(int argc, char* argv[]){
