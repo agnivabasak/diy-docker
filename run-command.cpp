@@ -7,6 +7,9 @@
 #include <unistd.h>
 #include <iostream>
 #include <sys/wait.h>
+#include <sys/types.h>
+#include <fstream>
+#include <sstream>
 #include <random>
 #include <algorithm>
 #include <climits>
@@ -16,8 +19,11 @@ using namespace std;
 
 random_device rd;
 const int STACK_SIZE = 1024 * 1024; //clone() -> doesn't create stack on its own like fork, we have to create it manually
+uid_t host_uid = getuid();
+gid_t host_gid = getgid();
 
 int runDockerCommandInIsolation(void* arg) {
+	//usleep(1000000);
 	//Generate random id for container
 	mt19937 g(rd());
 	uniform_int_distribution<int> dist(0, INT_MAX);
@@ -54,7 +60,8 @@ int runDockerCommandInIsolation(void* arg) {
 		cerr << "Couldn't isolate the process from the host filesystem!";
 		return 1;
 	}
-
+	
+	//TODO: Fix this, gives an error saying proc is in use/busy
 	string unmountCommand = "umount /proc";
 	if (system(unmountCommand.c_str()) != 0)
 	{
@@ -69,14 +76,59 @@ int runDockerCommand(string command) {
 	char* stack = new char[STACK_SIZE];
 	char* stackTop = stack + STACK_SIZE;
 
-	//Flags are used for assigning new namespaces to the new process
-	//CLONE_NEWPID - Creates a new PID Namespace, each PID Namespace starts from 1,2,3...
-	//CLONE_NEWNS - Creates a new Mount Namespace - doesnt just show a view from the host's /proc when we access it, but from a fresh one
-	//CLONE_NEWUTS - Creating new UTS Namespace allows us to change the hostname/domainname of the process being spawned
-	pid_t pid = clone(runDockerCommandInIsolation, stackTop, CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | SIGCHLD, (void*)command.c_str());
+	string whoami="whoami";
+	system(whoami.c_str());
+
+	/*
+	Flags are used for assigning new namespaces to the new process
+	CLONE_NEWPID - Creates a new PID Namespace, each PID Namespace starts from 1,2,3...
+	CLONE_NEWNS - Creates a new Mount Namespace - doesn't just show a view from the host's /proc when we access it, but from a fresh one
+	CLONE_NEWUTS - Creating new UTS Namespace allows us to change the hostname/domainname of the process being spawned
+	CLONE_NEWUSER - Creating a new user namespace which lets us run the container rootless. The host user becomes the root inside the container
+	In Docker, by default it's the root, and we have to set the user using "USER" in the DockerFile
+	*/
+
+	pid_t pid = clone(runDockerCommandInIsolation, stackTop, CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWUSER | SIGCHLD, (void*)command.c_str());
 	if (pid == -1) {
 		perror("Failed to create isolated process");
 		return 1;
+	}
+
+	// Write to /proc/[pid]/setgroups to "deny" group changes
+	// Required before gid_map changes, so as to prevent permission escalations by changing groups
+	{
+		ofstream setgroups("/proc/" + to_string(pid) + "/setgroups");
+		if (setgroups) {
+			setgroups << "deny";
+		}
+		else {
+			perror("setgroups write failed");
+			return 1;
+		}
+	}
+
+	// Write uid_map
+	{
+		ofstream uid_map("/proc/" + to_string(pid) + "/uid_map");
+		if (uid_map) {
+			uid_map << "0 " << host_uid << " 1";
+		}
+		else {
+			perror("uid_map write failed");
+			return 1;
+		}
+	}
+
+	// Write gid_map
+	{
+		ofstream gid_map("/proc/" + std::to_string(pid) + "/gid_map");
+		if (gid_map) {
+			gid_map << "0 " << host_gid << " 1";
+		}
+		else {
+			perror("gid_map write failed");
+			return 1;
+		}
 	}
 
 	int status;
