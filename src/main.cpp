@@ -20,10 +20,10 @@ int main(int argc, char* argv[]) {
 			throw minidocker::CLIParserException("Unrecognized subcommand !\n");
 		}
 		return 0;
-	} catch (minidocker::CLIParserException ex){
+	} catch (minidocker::CLIParserException &ex){
 		cerr << "A CLI Parsing Exception occured : " + string(ex.what()) + "\n";
 		return 1;
-	} catch (minidocker::ContainerRuntimeException ex) {
+	} catch (minidocker::ContainerRuntimeException &ex) {
 		cerr << "A Container Runtime Exception occured : " + string(ex.what()) + "\n";
 		return 1;
 	} catch (...){

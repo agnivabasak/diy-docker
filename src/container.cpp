@@ -192,7 +192,7 @@ namespace minidocker
 		//proc is a VFS(Virtual File System) with access to information about processes
 		//mounting it, gives the container access to default /proc path
 		//the kernel takes care of only giving access to info about the processes in the same PID Namespace
-		string mountCommand = "mount -t proc proc ../alpine/proc";
+		string mountCommand = "mount -t proc proc ./alpine/proc";
 		if (system(mountCommand.c_str()) != 0)
 		{
 			throw MountException("Couldn't mount proc to successfully isolate process info!");
@@ -201,7 +201,7 @@ namespace minidocker
 
 	bool Container::isProcStillMounted()
 	{
-		ifstream mountinfo("../alpine/proc/self/mountinfo");
+		ifstream mountinfo("./alpine/proc/self/mountinfo");
 		string line;
 
 		while (getline(mountinfo, line))
@@ -216,7 +216,7 @@ namespace minidocker
 
 	void Container::unmountProc()
 	{
-		string unmountCommand = "umount ../alpine/proc";
+		string unmountCommand = "umount ./alpine/proc";
 		if (system(unmountCommand.c_str()) != 0)
 		{
 			// BusyBox umount might fail to update /etc/mtab - old way of updating /etc/mtab directly,
@@ -304,7 +304,7 @@ namespace minidocker
 			string sCommand(command);
 			//chroot is used to set the root directory, this helps isolate the process from the host filesystem
 			//currently using an alpine installation to test that chroot works as expected
-			string chrootedCommand = "chroot ../alpine " + sCommand;
+			string chrootedCommand = "chroot ./alpine " + sCommand;
 			if (system(chrootedCommand.c_str()) != 0)
 			{
 				throw ContainerRuntimeException("Couldn't isolate the process from the host filesystem!");
@@ -351,7 +351,6 @@ namespace minidocker
 
 			int status;
 			waitpid(pid, &status, 0);
-			int exit_code = 0;
 			if (!WIFEXITED(status)) {
 				throw ContainerRuntimeException("Couldn't containerize image successfully!");
 			}
