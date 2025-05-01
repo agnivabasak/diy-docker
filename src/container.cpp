@@ -73,7 +73,7 @@ namespace minidocker
 		random_device rd;
 		mt19937 g(rd());
 		uniform_int_distribution<int> dist(0, INT_MAX);
-		long long containerId = dist(g);
+		int containerId = dist(g);
 
 		//Getting hostname for the isolated process
 		return "minidocker-" + to_string(containerId);
@@ -237,10 +237,19 @@ namespace minidocker
 	void Container::cleanupCgroup(string& hostname)
 	{
 		//removing cgroup files
-		//TODO: Shift this to after everything to do with the container is done, because currently it fails as tasks or cgroup.procs still has the pid
 		struct stat sb;
 		if (stat("/sys/fs/cgroup/cgroup.controllers", &sb) == 0 && S_ISREG(sb.st_mode)) {
 			//This indicates the os uses cgroup v2
+
+			//move the pids from container cgroup.procs to the host cgroup.procs
+			std::ifstream cgroupProcs("/sys/fs/cgroup/" + hostname + "/cgroup.procs");
+			std::string pid;
+			while (std::getline(cgroupProcs, pid)) {
+				std::ofstream rootProcs("/sys/fs/cgroup/cgroup.procs");
+				rootProcs << pid;
+			}
+
+			//Remove the actual cgroup directory
 			string removeCgroup = "rmdir /sys/fs/cgroup/" + hostname;
 			if (system(removeCgroup.c_str()) != 0)
 			{
@@ -250,6 +259,22 @@ namespace minidocker
 		}
 		else {
 			//This indicates the os uses cgroup v1
+
+			//move the pids from container tasks to the host tasks
+			std::ifstream memTasks("/sys/fs/cgroup/memory/" + hostname + "/tasks");
+			std::string pid;
+			while (std::getline(memTasks, pid)) {
+				std::ofstream rootTasks("/sys/fs/cgroup/memory/tasks");
+				rootTasks << pid;
+			}
+
+			std::ifstream cpuTasks("/sys/fs/cgroup/cpu/" + hostname + "/tasks");
+			while (std::getline( cpuTasks, pid)) {
+				std::ofstream rootTasks("/sys/fs/cgroup/cpu/tasks");
+				rootTasks << pid;
+			}
+
+			//Remove the actual cgroup directory
 			string removeCgroupMemory = "rmdir /sys/fs/cgroup/memory/" + hostname;
 			if (system(removeCgroupMemory.c_str()) != 0)
 			{
