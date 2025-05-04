@@ -40,6 +40,24 @@ namespace minidocker
         explicit CleanupCgroupException(const std::string& message)
             : ContainerRuntimeException(message) {}
     };
+
+    class ImageManifestException : ImageException {
+    public:
+        explicit ImageManifestException(const std::string& message)
+            : ImageException(message) {}
+    };
+
+    class ImageTarballException : ImageException {
+    public:
+        explicit ImageTarballException(const std::string& message)
+            : ImageException(message) {}
+    };
+
+    class ImageExtractionException : ImageException {
+    public:
+        explicit ImageExtractionException(const std::string& message)
+            : ImageException(message) {}
+    };
 }
 
 #endif

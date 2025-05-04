@@ -18,7 +18,7 @@ int main(int argc, char* argv[]) {
 		} else if (cliParser.getSubCommand() == "pull") {
 			minidocker::ImageArgs imageArgs(cliParser.getDockerImageArgs());
 			minidocker::Image image(imageArgs);
-			image.fetchManifest();
+			image.pull();
 		} else {
 			throw minidocker::CLIParserException("Unrecognized subcommand !\n");
 		}

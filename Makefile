@@ -4,7 +4,8 @@ CXXFLAGS := -std=c++17 -Wall -I/usr/include
 LDFLAGS  = -l curl
 
 # Need libcurl  - sudo apt install libcurl4-openssl-dev 
-# Need nlohmann:json sudo apt install nlohmann-json3-dev
+# Need nlohmann:json - sudo apt install nlohmann-json3-dev
+# Need tar - sudo apt install tar
 
 # Folders
 SRC_DIR := src
