@@ -18,6 +18,12 @@ namespace minidocker
             : std::runtime_error(message) {}
     };
 
+    class ImageException : public std::runtime_error {
+    public:
+        explicit ImageException(const std::string& message)
+            : std::runtime_error(message) {}
+    };
+
 }
 
 #endif

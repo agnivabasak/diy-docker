@@ -1,6 +1,10 @@
 # Compiler and flags
 CXX := g++
-CXXFLAGS := -std=c++17 -Wall -Iinclude
+CXXFLAGS := -std=c++17 -Wall -I/usr/include
+LDFLAGS  = -l curl
+
+# Need libcurl  - sudo apt install libcurl4-openssl-dev 
+# Need nlohmann:json sudo apt install nlohmann-json3-dev
 
 # Folders
 SRC_DIR := src
@@ -23,7 +27,7 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
 # Link the final executable
 $(TARGET): $(OBJS)
 	@mkdir -p $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 # Clean up
 clean:

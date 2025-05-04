@@ -2,6 +2,9 @@
 #include "../include/minidocker/custom_specific_exceptions.hpp"
 #include <string>
 #include <algorithm>
+#include <utility>
+
+using namespace std;
 
 namespace minidocker
 {
@@ -29,16 +32,41 @@ namespace minidocker
 
 		transform(m_sub_command.begin(), m_sub_command.end(), m_sub_command.begin(),
 			[](unsigned char c) { return tolower(c); }); //transforming string in-place to lower case characters
+
+		//In case of Image rather than direct command execution
+		ImageArgs imageArgs;
+		auto pos = m_container_command.find(':');
+		if (pos == string::npos) {
+			imageArgs.name = m_container_command;
+			imageArgs.tag = "latest";
+		} else {
+			imageArgs.name = m_container_command.substr(0, pos);
+			string tempTag = m_container_command.substr(pos + 1);
+
+			if (tempTag.empty()) {
+				tempTag = "latest";
+			}
+
+			imageArgs.tag = tempTag;
+		}
+
+		m_image_args = imageArgs;
 	}
 
-	std::string CLIParser::getSubCommand() const
+	string CLIParser::getSubCommand() const
 	{
 		return m_sub_command;
 	}
 
-	std::string CLIParser::getDockerCommand() const
+	string CLIParser::getDockerCommand() const
 	{
 		return m_container_command + m_container_args;
 	}
+
+	ImageArgs CLIParser::getDockerImageArgs() const
+	{
+		return m_image_args;
+	}
+
 
 }
