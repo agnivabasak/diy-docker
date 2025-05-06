@@ -15,9 +15,11 @@
 using json = nlohmann::json;
 
 using namespace std;
+
 namespace fs = std::filesystem;
 static string cache_dir = "/var/lib/minidocker/layers";
 static string tar_dir = "/tmp/minidocker";
+static string container_dir = "/var/lib/minidocker/containers";
 
 //TODO: make sure files created in case of error is deleted like .tar and folder for image layer
 namespace minidocker
@@ -380,5 +382,10 @@ namespace minidocker
         fetchManifest();
         processImageLayers();
     }
+
+    ImageManifest Image::getImageManifest() const
+	{
+        return m_image_manifest;
+	}
 
 }

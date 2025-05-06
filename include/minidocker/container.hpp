@@ -22,6 +22,7 @@ namespace minidocker
 		static bool isProcStillMounted();
 		static void unmountProc();
 		static void cleanupCgroup(std::string& hostname);
+		void prepareContainerFs(const std::string& hostname) const;
 
 		static int runDockerCommandInIsolation(void* arg);
 

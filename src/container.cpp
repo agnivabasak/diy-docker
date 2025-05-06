@@ -1,3 +1,4 @@
+#include "../include/minidocker/image.hpp"
 #include "../include/minidocker/container.hpp"
 #include "../include/minidocker/custom_specific_exceptions.hpp"
 #ifndef _GNU_SOURCE
@@ -11,6 +12,7 @@
 #include <iostream>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <random>
@@ -18,6 +20,11 @@
 #include <climits>
 
 using namespace std;
+
+namespace fs = std::filesystem;
+static string cache_dir = "/var/lib/minidocker/layers";
+static string tar_dir = "/tmp/minidocker";
+static string container_dir = "/var/lib/minidocker/containers";
 
 namespace minidocker
 {
@@ -288,6 +295,33 @@ namespace minidocker
 		}
 	}
 
+	void Container::prepareContainerFs(const std::string& hostname) const
+	{
+		cout << "Preparing container filesystem...\n";
+		fs::create_directories(container_dir);
+		string host_container_dir = container_dir + "/" + hostname;
+
+		fs::create_directories(host_container_dir);
+
+		ImageManifest image_manifest = m_image.getImageManifest();
+
+		for (const ImageLayer& layer : image_manifest.m_image_layers) {
+			string digest_clean = layer.m_image_digest.substr(layer.m_image_digest.find(":") + 1); // remove "sha256:"
+			string image_layer_dir = cache_dir + "/" + digest_clean;
+
+			if (!fs::exists(image_layer_dir)) {
+				throw ContainerRuntimeException("Image Layer doesn't exist! Container FS can't be created successfully!\nAborting...\n\n");
+			}
+
+			fs::copy(image_layer_dir, host_container_dir,
+				fs::copy_options::recursive |
+				fs::copy_options::overwrite_existing |
+				fs::copy_options::copy_symlinks);
+		}
+
+		cout << "Success\n\n";
+	}
+
 
 	int Container::runDockerCommandInIsolation(void* arg)
 	{
@@ -357,8 +391,13 @@ namespace minidocker
 
 			delete[] stack;
 
+		} else if (m_image.getImageType()=="DOCKER_IMAGE"){
+
+			string hostname = generateHostName();
+			prepareContainerFs(hostname);
+
 		} else {
-			//handle when dealing with Image pulled
+			throw ContainerRuntimeException("Unknown type of image requested to be containerized!");
 		}
 	}
 

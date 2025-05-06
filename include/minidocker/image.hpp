@@ -51,6 +51,7 @@ namespace minidocker
 		std::string getDockerCommand() const;
 		std::string getImageType() const;
 		void pull();
+		ImageManifest getImageManifest() const;
 	};
 }
 

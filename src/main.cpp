@@ -11,10 +11,19 @@ using namespace std;
 int main(int argc, char* argv[]) {
 	try {
 		minidocker::CLIParser cliParser(argc,argv);
-		if (cliParser.getSubCommand() == "run"){
+		if (cliParser.getSubCommand() == "run-command") {
 			minidocker::Image image(cliParser.getDockerCommand());
 			minidocker::Container container(image);
 			container.runDockerCommand();
+		} else if (cliParser.getSubCommand() == "run") {
+			//First pull the image
+			minidocker::ImageArgs imageArgs(cliParser.getDockerImageArgs());
+			minidocker::Image image(imageArgs);
+			image.pull();
+			//Now start the container
+			minidocker::Container container(image);
+			container.runDockerCommand();
+
 		} else if (cliParser.getSubCommand() == "pull") {
 			minidocker::ImageArgs imageArgs(cliParser.getDockerImageArgs());
 			minidocker::Image image(imageArgs);
