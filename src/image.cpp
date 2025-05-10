@@ -119,6 +119,170 @@ namespace minidocker
         m_bearer_token = token;
 	}
 
+    void Image::parseConfigDetails(json config_json)
+    {
+        string image_name = m_image_name;
+        if (image_name.find('/') == string::npos) {
+            image_name = "library/" + image_name;  // Default namespace - for example if we want to pull ubuntu - we need to use library/ubuntu
+        }
+
+        //parse the config json to get config details
+        if (config_json.contains("config") && config_json["config"].is_object())
+        {
+            const auto& parsed_config_json = config_json["config"];
+            ImageConfig image_config;
+
+            //Entrypoint
+            if (parsed_config_json.contains("Entrypoint") && !parsed_config_json["Entrypoint"].is_null() && parsed_config_json["Entrypoint"].is_array()) {
+                image_config.m_entrypoint = "";
+                const auto& entrypoint_args = parsed_config_json["Entrypoint"];
+                for (auto& entrypoint_arg : entrypoint_args)
+                {
+                    image_config.m_entrypoint.append(" " + string(entrypoint_arg));
+                }
+            } else {
+                image_config.m_entrypoint = "";
+            }
+
+            //Cmd
+            if (parsed_config_json.contains("Cmd") && !parsed_config_json["Cmd"].is_null() && parsed_config_json["Cmd"].is_array()) {
+                image_config.m_cmd = "";
+                const auto& cmd_args = parsed_config_json["Cmd"];
+                for (auto& cmd_arg: cmd_args)
+                {
+                    image_config.m_cmd.append(" " + string(cmd_arg));
+                }
+            } else {
+                image_config.m_cmd = "";
+            }
+
+            //Env
+            if (parsed_config_json.contains("Env") && !parsed_config_json["Env"].is_null() && parsed_config_json["Env"].is_array()) {
+                image_config.m_env = vector<string>();
+                const auto& env_vars = parsed_config_json["Env"];
+                for (auto& env_var: env_vars)
+                {
+                    image_config.m_env.push_back(string(env_var));
+                }
+            } else {
+                image_config.m_env = vector<string>();
+            }
+
+            //WorkingDir
+            if (parsed_config_json.contains("WorkingDir") && !parsed_config_json["WorkingDir"].is_null() && parsed_config_json["WorkingDir"].is_string()) {
+                image_config.m_working_dir = parsed_config_json["WorkingDir"];
+            }
+            else {
+                image_config.m_working_dir = "";
+            }
+
+            m_image_manifest.m_image_config = image_config;
+        }
+        else {
+            throw ImageConfigException("Config detail missing for image: " + image_name + ":" + m_image_tag);
+        }
+    }
+
+
+    void Image::fetchConfigDetails(json manifest_json)
+    {
+        cout << "\nFetching Config Details for : " << m_image_name << ":" << m_image_tag << "...\n";
+
+        string image_name = m_image_name;
+        if (image_name.find('/') == string::npos) {
+            image_name = "library/" + image_name;  // Default namespace - for example if we want to pull ubuntu - we need to use library/ubuntu
+        }
+
+        //parse the manifest to get config details
+        if (manifest_json.contains("config") && manifest_json["config"].is_object())
+        {
+            const auto& configJson = manifest_json["config"];
+            if (configJson.contains("digest") && configJson["digest"].is_string())
+            {
+                string digest = configJson["digest"];
+                string registry_url = "https://registry-1.docker.io/v2/" + image_name + "/blobs/" + digest;
+
+                CURL* curl = curl_easy_init();
+                string response;
+
+                long http_code = 0;
+
+                if (curl) {
+                    struct curl_slist* headers = nullptr;
+                    headers = curl_slist_append(headers, "Accept: application/vnd.oci.image.config.v1+json");
+                    headers = curl_slist_append(headers, "Accept: application/vnd.docker.container.image.v1+json");
+                    string auth_header;
+                    if (!m_bearer_token.empty())
+                    {
+                        auth_header = "Authorization: Bearer " + m_bearer_token;
+                        headers = curl_slist_append(headers, auth_header.c_str());
+                    }
+
+                    curl_easy_setopt(curl, CURLOPT_URL, registry_url.c_str());
+                    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+                    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
+                    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+                    string header_str;
+                    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, writeCallback);
+                    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &header_str);
+
+                    //blob fetching can respond with 307 Redirect responses
+                    //this is to handle redirect
+                    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+                    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L); // limit to 5 redirects
+                    curl_easy_setopt(curl, CURLOPT_AUTOREFERER, 1L);
+                    //Also avoid curl writing http errors into the response
+                    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+
+                    curl_easy_perform(curl);
+                    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+                    if (http_code == 401) {
+
+                        //Update token as unauthorized error
+                        updateTokenIfUnauthorized(header_str);
+
+                        // Retry with Bearer token
+                        auth_header = "Authorization: Bearer " + m_bearer_token;
+                        headers = curl_slist_append(headers, auth_header.c_str());
+
+                        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+                        response.clear();
+                        curl_easy_perform(curl);
+                        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+                    }
+
+                    curl_easy_cleanup(curl);
+                    curl_slist_free_all(headers);
+
+                }
+                else {
+                    throw ImageConfigException("Couldn't initialize curl to get config of image!");
+                }
+
+                if (response.empty()) {
+                    throw ImageConfigException("Couldn't get the config for " + image_name + ":" + m_image_tag + " !");
+                }
+
+                if (http_code == 401) {
+                    throw ImageConfigException("401 UNAUTHORIZED ERROR - while trying to fetch config for " + image_name + ":" + m_image_tag + " !");
+                }
+
+                json config_json = json::parse(response);
+                parseConfigDetails(config_json);
+            }
+            else {
+                throw ImageConfigException("Config detail missing digest for image: " + image_name + ":" + m_image_tag);
+            }
+        }
+        else {
+            throw ImageConfigException("Config detail missing for image: " + image_name + ":" + m_image_tag);
+        }
+
+        cout << "Success\n\n";
+    }
+
     void Image::parseManifest(json manifest_json, const string& image_name, const string& image_tag)
     {
         //parse the manifest that we have now to m_image_manifest
@@ -170,7 +334,6 @@ namespace minidocker
             throw ImageManifestException("Manifest Parsing Exception for : " + image_name + ":" + image_tag);
         }
     }
-
 
     void Image::fetchManifest(string image_name, string image_tag)
 	{
@@ -260,8 +423,11 @@ namespace minidocker
 
             throw ImageManifestException("No suitable manifest found for " + host_arch + "/" + host_os + " in " + image_name + ":" + image_tag);
         }
-        
+
         parseManifest(manifest_json, image_name, image_tag);
+        //Now that we have the actual Image Manifest, We need to get the config details
+		fetchConfigDetails(manifest_json);
+
         cout << "Success\n\n";
     }
 

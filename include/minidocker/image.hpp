@@ -15,11 +15,21 @@ namespace minidocker
 		std::string m_image_size;
 	};
 
+	//for now supported config details : Cmd, Entrypoint, Env, WorkingDir
+	struct ImageConfig
+	{
+		std::string m_cmd;
+		std::string m_entrypoint;
+		std::vector<std::string> m_env;
+		std::string m_working_dir;
+	};
+
 	struct ImageManifest
 	{
 		std::string m_image_version;
 		std::string m_image_source;
 		std::string m_image_url;
+		ImageConfig m_image_config;
 		std::vector<ImageLayer>  m_image_layers;
 	};
 
@@ -40,6 +50,8 @@ namespace minidocker
 		std::string getToken(const std::string& auth_url);
 		void updateTokenIfUnauthorized(const std::string& header_str);
 		void parseManifest(nlohmann::json manifest_json, const std::string& image_name, const std::string& image_tag);
+		void parseConfigDetails(nlohmann::json config_json);
+		void fetchConfigDetails(nlohmann::json manifest_json);
 		void fetchManifest();
 		void fetchManifest(std::string image_name, std::string image_tag);
 		void downloadImageLayer(const std::string& blob_url, const std::string& image_tar_path);

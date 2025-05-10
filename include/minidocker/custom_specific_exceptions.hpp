@@ -47,6 +47,12 @@ namespace minidocker
             : ImageException(message) {}
     };
 
+    class ImageConfigException : ImageException {
+    public:
+        explicit ImageConfigException(const std::string& message)
+            : ImageException(message) {}
+    };
+
     class ImageTarballException : ImageException {
     public:
         explicit ImageTarballException(const std::string& message)
