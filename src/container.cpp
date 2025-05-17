@@ -33,6 +33,42 @@ namespace minidocker
 		
 	}
 
+	Image Container::getImage()
+	{
+		return m_image;
+	}
+
+	std::string Container::getHostname()
+	{
+		return m_hostname;
+	}
+
+	void Container::fetchMinidockerDefaultFs()
+	{
+		const char* path = std::getenv("MINIDOCKER_DEFAULT_FS");
+		if (path) {
+			m_container_fs_dir = string(path);
+			if (!m_container_fs_dir.empty() && m_container_fs_dir.back() == '/') {
+				m_container_fs_dir.pop_back(); // Remove '/' at the end for consistency in case its there
+			}
+			struct stat sb;
+			if (!(stat(m_container_fs_dir.c_str(), &sb) == 0 && S_ISDIR(sb.st_mode))) {
+				// It's not a valid directory
+				throw ContainerRuntimeException("Path stored in MINIDOCKER_DEFAULT_FS is not valid!"
+					"\n\tPlease set it to a valid path of a minimal root filesystem (e.g., alpine-minirootfs) before running a single dockerized command!");
+			}
+		} else {
+			throw ContainerRuntimeException("Couldn't find env variable MINIDOCKER_DEFAULT_FS."
+				"\n\tPlease set it to a valid path of a minimal root filesystem (e.g., alpine-minirootfs) before running a single dockerized command!");
+		}
+	}
+
+	string Container::getContainerFsDir()
+	{
+		return m_container_fs_dir;
+	}
+
+
 	void Container::mapRootUserInContainer(pid_t pid)
 	{
 		pid_t host_uid = getuid();
@@ -82,8 +118,9 @@ namespace minidocker
 		uniform_int_distribution<int> dist(0, INT_MAX);
 		int containerId = dist(g);
 
+		m_hostname = "minidocker-" + to_string(containerId);
 		//Getting hostname for the isolated process
-		return "minidocker-" + to_string(containerId);
+		return m_hostname;
 	}
 
 	void Container::limitResourceUsageUsingCgroups(pid_t pid, std::string hostname)
@@ -193,22 +230,30 @@ namespace minidocker
 		}
 	}
 
-	void Container::mountProc()
+	void Container::mountProc(const string& container_fs_dir)
 	{
+		//if proc folder doesn't exist, create one
+		string proc_folder_path = container_fs_dir + "/proc";
+		struct stat sb;
+		if (!(stat(proc_folder_path.c_str(), &sb) == 0 && S_ISDIR(sb.st_mode))) {
+			// It's not a valid directory, so create one
+			fs::create_directories(proc_folder_path);
+		}
+
 		//mount the proc to /proc mountpoint
 		//proc is a VFS(Virtual File System) with access to information about processes
 		//mounting it, gives the container access to default /proc path
 		//the kernel takes care of only giving access to info about the processes in the same PID Namespace
-		string mountCommand = "mount -t proc proc ./alpine/proc";
+		string mountCommand = "mount -t proc proc \""+ proc_folder_path+"\"";
 		if (system(mountCommand.c_str()) != 0)
 		{
 			throw MountException("Couldn't mount proc to successfully isolate process info!");
 		}
 	}
 
-	bool Container::isProcStillMounted()
+	bool Container::isProcStillMounted(const string& container_fs_dir)
 	{
-		ifstream mountinfo("./alpine/proc/self/mountinfo");
+		ifstream mountinfo(container_fs_dir+"/proc/self/mountinfo");
 		string line;
 
 		while (getline(mountinfo, line))
@@ -221,21 +266,19 @@ namespace minidocker
 		return false; // Not found => unmounted
 	}
 
-	void Container::unmountProc()
+	void Container::unmountProc(const string& container_fs_dir)
 	{
-		string unmountCommand = "umount ./alpine/proc";
+		string unmountCommand = "umount \"" + container_fs_dir + "/proc\"";
 		if (system(unmountCommand.c_str()) != 0)
 		{
 			// BusyBox umount might fail to update /etc/mtab - old way of updating /etc/mtab directly,
 			// Since we are writing a simple version, there is no need to handle this since this is mostly because of tooling issue of alpine minirootfs
 			// but check if /proc is really unmounted - thats what matters
-			if (isProcStillMounted())
+			if (isProcStillMounted(container_fs_dir))
 			{
 				// Real error
 				throw UnmountException("Couldn't unmount /proc successfully and it is still mounted!");
-			}
-			else
-			{
+			} else {
 				cerr << "Warning: umount reported failure, but /proc is no longer mounted. Continuing safely.\n";
 			}
 		}
@@ -295,16 +338,15 @@ namespace minidocker
 		}
 	}
 
-	void Container::prepareContainerFs(const std::string& hostname) const
+	void Container::prepareContainerFs(const std::string& hostname)
 	{
 		cout << "Preparing container filesystem...\n";
 		fs::create_directories(container_dir);
 		string host_container_dir = container_dir + "/" + hostname;
+		m_container_fs_dir = host_container_dir;
 
 		fs::create_directories(host_container_dir);
-
 		ImageManifest image_manifest = m_image.getImageManifest();
-
 		for (const ImageLayer& layer : image_manifest.m_image_layers) {
 			string digest_clean = layer.m_image_digest.substr(layer.m_image_digest.find(":") + 1); // remove "sha256:"
 			string image_layer_dir = cache_dir + "/" + digest_clean;
@@ -322,31 +364,85 @@ namespace minidocker
 		cout << "Success\n\n";
 	}
 
+	string Container::resolveExecutablePath(const string& command, char** envp) {
+
+		// If command is already an absolute or relative path
+		if (command.find('/') != std::string::npos) {
+			if (access(command.c_str(), X_OK) == 0) {
+				return command;
+			}
+			else {
+				return "";  // Invalid path or not executable
+			}
+		}
+
+		// 1. Check current working directory
+		std::string cwd_exec = "./" + command;
+		if (access(cwd_exec.c_str(), X_OK) == 0) {
+			return cwd_exec;
+		}
+
+		// 2. Find PATH variable from envp
+		std::string path_env;
+		for (size_t i = 0; envp[i] != nullptr; ++i) {
+			std::string env_entry(envp[i]);
+			if (env_entry.rfind("PATH=", 0) == 0) {
+				path_env = env_entry.substr(5);  // remove "PATH="
+				break;
+			}
+		}
+
+		// 3. Search in each path dir
+		if (!path_env.empty()) {
+			size_t start = 0, end;
+			while ((end = path_env.find(':', start)) != std::string::npos) {
+				std::string dir = path_env.substr(start, end - start);
+				std::string full_path = dir + "/" + command;
+				if (access(full_path.c_str(), X_OK) == 0) {
+					return full_path;
+				}
+				start = end + 1;
+			}
+			// Last path segment
+			std::string last_dir = path_env.substr(start);
+			std::string full_path = last_dir + "/" + command;
+			if (access(full_path.c_str(), X_OK) == 0) {
+				return full_path;
+			}
+		}
+
+		return "";  // Not found
+	}
+
 
 	int Container::runDockerCommandInIsolation(void* arg)
 	{
 		try {
+			//sleep for a sec, so all the assignments required before processing is done
+			usleep(1000000);
+
 			//Isolate the resource and set the limits
-			string hostname = generateHostName();
-			pid_t pid = getpid();
-			limitResourceUsageUsingCgroups(pid, hostname);
+			Container* cur_container = static_cast<Container*>(arg);
+
+			string hostname = cur_container->getHostname();
 			setHostNameForContainer(hostname);
-			mountProc();
+
+			string container_fs_dir = cur_container->getContainerFsDir();
+			mountProc(container_fs_dir);
 
 			//execute the command
-			const char* command = static_cast<const char*>(arg);
-			string sCommand(command);
+
+			std::string sCommand = cur_container->getImage().getDockerCommand();
+
 			//chroot is used to set the root directory, this helps isolate the process from the host filesystem
 			//currently using an alpine installation to test that chroot works as expected
-			string chrootedCommand = "chroot ./alpine " + sCommand;
+			string chrootedCommand = "chroot \"" + container_fs_dir + "\" " + sCommand;
 			if (system(chrootedCommand.c_str()) != 0)
 			{
 				throw ContainerRuntimeException("Couldn't isolate the process from the host filesystem!");
 			}
 
-			//cleanup
-			unmountProc();
-			cleanupCgroup(hostname);
+			unmountProc(container_fs_dir);
 
 			return 0;
 
@@ -359,10 +455,98 @@ namespace minidocker
 		}
 	}
 
+	int Container::runDockerImageInIsolation(void* arg)
+	{
+		try {
+			//sleep for a sec, so all the assignments required before processing is done
+			usleep(1000000);
+
+			//Isolate the resource and set the limits
+			Container* cur_container = static_cast<Container*>(arg);
+
+			string hostname = cur_container->getHostname();
+			setHostNameForContainer(hostname);
+
+			string container_fs_dir = cur_container->getContainerFsDir();
+			mountProc(container_fs_dir);
+
+			//execute the command
+
+			//chroot into the container filesystem
+			if (chroot(container_fs_dir.c_str()) != 0) {
+				throw ContainerRuntimeException("Couldn't isolate the process from the host filesystem!");
+			}
+
+			//chdir to root
+			if (chdir("/") != 0) {
+				throw ContainerRuntimeException("Couldn't isolate the process from the host filesystem!");
+			}
+
+			ImageConfig image_config = cur_container->getImage().getImageManifest().m_image_config;
+			//chdir to working directory if specified
+			string working_dir = image_config.m_working_dir;
+			if (!working_dir.empty()) {
+				if (chdir(working_dir.c_str()) != 0) {
+					throw ContainerRuntimeException("Couldn't isolate the process from the host filesystem!");
+				}
+			}
+
+			//Prepare argv for execve
+			std::vector<char*> argv;
+
+			vector<string> entrypoint = image_config.m_entrypoint;
+			for (const std::string& s : entrypoint) {
+				argv.push_back(const_cast<char*>(s.c_str()));
+			}
+
+			vector<string> cmd = image_config.m_cmd;
+			for (const std::string& s : cmd) {
+				argv.push_back(const_cast<char*>(s.c_str()));
+			}
+
+			argv.push_back(nullptr); // Null-terminated array
+
+			//Prepare env variables for execve
+			char** envp = new char* [image_config.m_env.size() + 1]; // +1 for nullptr terminator
+			for (size_t i = 0; i < image_config.m_env.size(); ++i) {
+				envp[i] = new char[image_config.m_env[i].size() + 1];
+				std::strcpy(envp[i], image_config.m_env[i].c_str());
+			}
+			envp[image_config.m_env.size()] = nullptr;
+			// exec the command. execvp doesn't let us add custom environment variables,
+			// execve let's us add custom env variables but doesn't resolve the executabels using the PATH variable
+			//so we have to manually resolve the path for the executable
+
+			std::string resolved_path = resolveExecutablePath(argv[0], envp);
+			if (resolved_path.empty()) {
+				throw ContainerRuntimeException("Executable not found for command: "+ string(argv[0]));
+			}
+			argv[0] = const_cast<char*>(resolved_path.c_str());
+			execve(argv[0], argv.data(), envp);
+
+			//execve replaces the current process  with a new one, so the control doesn't return back to parent process
+			//It only returns if there is a failure
+			throw ContainerRuntimeException("Couldn't isolate the process from the host filesystem!");
+		}
+		catch (ContainerRuntimeException& ex) {
+			cerr << "A Container Runtime Exception occured : " + string(ex.what()) + "\n";
+			return 1;
+		}
+		catch (...) {
+			cerr << "An unexpected error occured!\n";
+			return 1;
+		}
+	}
+
+
 	void Container::runDockerCommand()
 	{
 		int STACK_SIZE;
 		if (m_image.getImageType()=="SINGLE_COMMAND") {
+
+			fetchMinidockerDefaultFs();
+			generateHostName();
+
 			STACK_SIZE = 1024*1024; //clone() -> doesn't create stack on its own like fork, we have to create it manually
 			char* stack = new char[STACK_SIZE];
 			char* stackTop = stack + STACK_SIZE;
@@ -376,25 +560,53 @@ namespace minidocker
 			In Docker, by default it's the root, and we have to set the user using "USER" in the DockerFile
 			*/
 
-			pid_t pid = clone(runDockerCommandInIsolation, stackTop, CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWUSER | SIGCHLD, (void*)m_image.getDockerCommand().c_str());
+			pid_t pid = clone(runDockerCommandInIsolation, stackTop, CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWUSER | SIGCHLD, this);
 			if (pid == -1) {
 				throw ContainerRuntimeException("Failed to create isolated process");
 			}
 
 			mapRootUserInContainer(pid);
+			limitResourceUsageUsingCgroups(pid, m_hostname);
 
 			int status;
 			waitpid(pid, &status, 0);
 			if (!WIFEXITED(status)) {
-				throw ContainerRuntimeException("Couldn't containerize image successfully!");
+				throw ContainerRuntimeException("Couldn't containerize command successfully!");
 			}
 
+			//cleanup
+			cleanupCgroup(m_hostname);
 			delete[] stack;
 
 		} else if (m_image.getImageType()=="DOCKER_IMAGE"){
 
 			string hostname = generateHostName();
 			prepareContainerFs(hostname);
+
+			STACK_SIZE = 16*1024 * 1024; //clone() -> doesn't create stack on its own like fork, we have to create it manually
+			char* stack = new char[STACK_SIZE];
+			char* stackTop = stack + STACK_SIZE;
+
+			pid_t pid = clone(runDockerImageInIsolation, stackTop, CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWUSER | SIGCHLD, this);
+			if (pid == -1) {
+				throw ContainerRuntimeException("Failed to create isolated process");
+			}
+
+			mapRootUserInContainer(pid);
+			limitResourceUsageUsingCgroups(pid, m_hostname);
+
+			int status;
+			cout << "\nRunning the container... \n\n";
+			waitpid(pid, &status, 0);
+			if (!WIFEXITED(status)) {
+				throw ContainerRuntimeException("Couldn't containerize image successfully!");
+			}
+
+			//cleanup
+			cleanupCgroup(m_hostname);
+			//unmountProc(m_container_fs_dir); -> cant be done outside the runDockerImageInIsolation function as proc is mounted in that mount ns
+			// It's also not required as we will be removing the container fs any way and won't reuse a container fs
+			delete[] stack;
 
 		} else {
 			throw ContainerRuntimeException("Unknown type of image requested to be containerized!");

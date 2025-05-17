@@ -18,8 +18,8 @@ namespace minidocker
 	//for now supported config details : Cmd, Entrypoint, Env, WorkingDir
 	struct ImageConfig
 	{
-		std::string m_cmd;
-		std::string m_entrypoint;
+		std::vector<std::string> m_cmd;
+		std::vector<std::string> m_entrypoint;
 		std::vector<std::string> m_env;
 		std::string m_working_dir;
 	};

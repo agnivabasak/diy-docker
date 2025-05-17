@@ -134,26 +134,26 @@ namespace minidocker
 
             //Entrypoint
             if (parsed_config_json.contains("Entrypoint") && !parsed_config_json["Entrypoint"].is_null() && parsed_config_json["Entrypoint"].is_array()) {
-                image_config.m_entrypoint = "";
+                image_config.m_entrypoint = vector<string>();
                 const auto& entrypoint_args = parsed_config_json["Entrypoint"];
                 for (auto& entrypoint_arg : entrypoint_args)
                 {
-                    image_config.m_entrypoint.append(" " + string(entrypoint_arg));
+                    image_config.m_entrypoint.push_back(string(entrypoint_arg));
                 }
             } else {
-                image_config.m_entrypoint = "";
+                image_config.m_entrypoint = vector<string>();
             }
 
             //Cmd
             if (parsed_config_json.contains("Cmd") && !parsed_config_json["Cmd"].is_null() && parsed_config_json["Cmd"].is_array()) {
-                image_config.m_cmd = "";
+                image_config.m_cmd = vector<string>();
                 const auto& cmd_args = parsed_config_json["Cmd"];
                 for (auto& cmd_arg: cmd_args)
                 {
-                    image_config.m_cmd.append(" " + string(cmd_arg));
+                    image_config.m_cmd.push_back(string(cmd_arg));
                 }
             } else {
-                image_config.m_cmd = "";
+                image_config.m_cmd = vector<string>();
             }
 
             //Env
@@ -171,8 +171,10 @@ namespace minidocker
             //WorkingDir
             if (parsed_config_json.contains("WorkingDir") && !parsed_config_json["WorkingDir"].is_null() && parsed_config_json["WorkingDir"].is_string()) {
                 image_config.m_working_dir = parsed_config_json["WorkingDir"];
-            }
-            else {
+                if (!image_config.m_working_dir.empty() && image_config.m_working_dir.back() == '/') {
+                    image_config.m_working_dir.pop_back(); // Remove '/' at the end for consistency in case its there
+                }
+            } else {
                 image_config.m_working_dir = "";
             }
 
@@ -428,7 +430,7 @@ namespace minidocker
         //Now that we have the actual Image Manifest, We need to get the config details
 		fetchConfigDetails(manifest_json);
 
-        cout << "Success\n\n";
+        cout << "Successfully fetched manifest details\n\n";
     }
 
     void Image::fetchManifest()
