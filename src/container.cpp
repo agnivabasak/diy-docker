@@ -33,6 +33,12 @@ namespace minidocker
 		
 	}
 
+	Container::~Container()
+	{
+		//remove the container file system once the execution is done
+		fs::remove_all(m_container_fs_dir);
+	}
+
 	Image Container::getImage()
 	{
 		return m_image;

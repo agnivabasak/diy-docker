@@ -32,6 +32,7 @@ namespace minidocker
 		static int runDockerImageInIsolation(void* arg);
 	public:
 		Container(const Image& image);
+		~Container();
 		void runDockerCommand();
 		Image getImage();
 		std::string getHostname();
