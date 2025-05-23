@@ -41,7 +41,7 @@ The available commands are listed below:
 | ------------ | ------------ | ------------ |
 | Run Command | `sudo ./build/mini-docker run-command <command>` | Execute a single CLI command like 'ls','echo',etc in a minimal root filesystem (e.g., alpine-minirootfs) <br> Environment variable "MINIDOCKER_DEFAULT_FS" should be set to a valid path of a minimal root filesystem
 | Pull Image | `sudo ./build/mini-docker pull <image name>[:<image_tag>]` | Pulls the image manifest, configuration and extracts the fs layers of the image into "/var/lib/minidocker/layers"<br>It uses "/tmp/minidocker" to store tarballs downloaded temporarily
-| Run Container | `sudo ./build/mini-docker pull <image name>[:<image_tag>]` | Pulls image if not available locally and then runs it in a container<br>Container fs is stored in "/var/lib/minidocker/containers" and destroyed at the end of the lifecycle
+| Run Container | `sudo ./build/mini-docker run <image name>[:<image_tag>]` | Pulls image if not available locally and then runs it in a container<br>Container fs is stored in "/var/lib/minidocker/containers" and destroyed at the end of the lifecycle
 
 ## Future Scope:
 
